@@ -1,13 +1,15 @@
 """
-CARMEN SANDIEGO — LCEL edition
-==============================
+CARMEN SANDIEGO — LCEL edition + chiptune
+=========================================
     python .\carmen.py
 
-O que é do Python: estado, rota, turnos, validação.
+Requer chiptune.py na mesma pasta, e .env com GOOGLE_API_KEY.
+
+O que é do Python: estado, rota, turnos, validação, som.
 O que é do LLM:    escrever pistas a partir de fatos reais.
 """
 
-import os, random, textwrap
+import os, random, textwrap, time
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -16,12 +18,13 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.rate_limiters import InMemoryRateLimiter
 from pydantic import BaseModel, Field
-from typing import Literal, List
+from typing import List
+from chiptune import passos, voo, acerto, erro, prisao, fuga
 
 llm = ChatGoogleGenerativeAI(
     model="gemini-3.5-flash",
     temperature=0.8,                    # criatividade aqui é feature
-    max_retries=1,
+    max_retries=3,                      # 503 é transitório: retry resolve
     timeout=60,
     rate_limiter=InMemoryRateLimiter(requests_per_second=0.3, max_bucket_size=1),
     google_api_key=os.environ["GOOGLE_API_KEY"],
@@ -49,6 +52,7 @@ class Pista(BaseModel):
     testemunha: str = Field(description="profissão da testemunha, ex: taxista")
     fala: str = Field(description="1-2 frases, oblíquas, sem citar o nome da cidade")
 
+
 class Rodada(BaseModel):
     pistas: List[Pista] = Field(description="exatamente 3 pistas")
 
@@ -71,7 +75,7 @@ def jogar():
     # ── PYTHON decide tudo que é estado. O LLM nunca vê isto. ──
     ladrao = random.choice(LADROES)
     rota = random.sample(list(CIDADES), 4)
-    turno, pos, restantes = 0, 0, 8
+    pos, restantes = 0, 8
 
     print("=" * 60)
     print("  ACME DETECTIVE AGENCY")
@@ -83,14 +87,21 @@ def jogar():
 
         print(f"\n📍 Você está em {atual}  |  ⏰ {restantes}h restantes")
         print("   Ouvindo testemunhas...\n")
+        passos()
 
-        r = chain.invoke({
-            "origem": atual,
-            "fatos": CIDADES[destino],
-            "cabelo": ladrao["cabelo"],
-            "hobby": ladrao["hobby"],
-            "veiculo": ladrao["veiculo"],
-        })
+        try:
+            r = chain.invoke({
+                "origem": atual,
+                "fatos": CIDADES[destino],
+                "cabelo": ladrao["cabelo"],
+                "hobby": ladrao["hobby"],
+                "veiculo": ladrao["veiculo"],
+            })
+        except Exception as e:
+            erro()
+            print(f"   ⚠️  Rádio falhou: {type(e).__name__}")
+            print("   Tente de novo em alguns segundos.\n")
+            return
 
         for p in r.pistas:
             print(f"   🗣️  {p.testemunha.upper()}")
@@ -110,19 +121,27 @@ def jogar():
         try:
             escolha = opcoes[int(input("\n   > ")) - 1]
         except (ValueError, IndexError):
+            erro()
             print("   Escolha inválida. Perdeu 1h.")
             restantes -= 1
             continue
 
+        voo()
+        time.sleep(0.7)
+
         restantes -= 2
         if escolha == destino:
+            acerto()
             print(f"\n   ✅ Pista quente! A ladra esteve em {destino}.")
             pos += 1
         else:
+            erro()
             print(f"\n   ❌ Beco sem saída em {escolha}. Rastro esfriou.")
 
         if restantes <= 0:
+            fuga()
             print(f"\n💀 Tempo esgotado. {ladrao['nome']} escapou.")
+            time.sleep(2)
             return
 
     # ── O mandado: acertar a cidade não basta. ──
@@ -133,11 +152,16 @@ def jogar():
 
     try:
         if LADROES[int(input("\n   > ")) - 1]["nome"] == ladrao["nome"]:
+            prisao()
             print(f"\n🏆 PRISÃO EFETUADA. {ladrao['nome']} está detida.")
         else:
+            fuga()
             print(f"\n😤 Mandado errado. {ladrao['nome']} fugiu por tecnicalidade.")
     except (ValueError, IndexError):
+        fuga()
         print("\n😤 Mandado inválido. Ela fugiu.")
+
+    time.sleep(2.5)   # deixa a fanfarra terminar antes do processo morrer
 
 
 if __name__ == "__main__":
